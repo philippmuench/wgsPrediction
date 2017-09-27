@@ -259,8 +259,8 @@ if __name__ == "__main__":
 
 	""" predict high-confidence reads """
 	print('find high confidence reads')
-	is_plasmid, plasmid_matches = countKmerMatch(args.file, 'dat/plasmid_unique.txt', 'high_confidence_plasmid_reads', args.is_fastq)
-	is_chromosome, chromosome_matches = countKmerMatch(args.file, 'dat/chromosome_unique.txt', 'high_confidence_chromosome_reads', args.is_fastq)
+	is_plasmid, plasmid_matches = countKmerMatch(args.file, 'database/plasmid_unique.txt', 'high_confidence_plasmid_reads', args.is_fastq)
+	is_chromosome, chromosome_matches = countKmerMatch(args.file, 'database/chromosome_unique.txt', 'high_confidence_chromosome_reads', args.is_fastq)
 
 	print("number of high-confidence plasmid reads found: %d" %(plasmid_matches))
 	print("number of high-confidence chromsome reads found: %d" %(chromosome_matches))
@@ -322,7 +322,7 @@ if __name__ == "__main__":
 		print('generate matrix')
 		X_mat = X.as_matrix()
 		print('get plot shape')
-		shapes = shapeKmerMatch2(args.file, 'dat/plasmid_unique.txt', 'dat/chromosome_unique.txt')
+		shapes = shapeKmerMatch2(args.file, 'database/plasmid_unique.txt', 'database/chromosome_unique.txt')
 		# subset data
 		if (args.read_num > X_mat.shape[0]):
 			print("subset size is larger than number of reads. Subset size was reduced to number of reads")
