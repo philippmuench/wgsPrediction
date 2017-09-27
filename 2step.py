@@ -17,6 +17,11 @@ from sklearn.preprocessing import MaxAbsScaler
 from sklearn.externals import joblib
 from sklearn.model_selection import train_test_split
 
+def fastq2fasta(fastq_path, fasta_path):
+	with open(fasta_path, "w") as fasta, open(fastq_path, "r") as fastq:
+		for record in SeqIO.parse(fastq, "fastq"):
+			SeqIO.write(record, fasta, "fasta")
+
 def sequence_cleaner(fasta_file, min_length=0, por_n=100):
 	# Create our hash table to add the sequences
 	sequences={}
@@ -33,25 +38,42 @@ def sequence_cleaner(fasta_file, min_length=0, por_n=100):
 		for sequence in sequences:
 			output_file.write(">" + sequences[sequence] + "\n" + sequence + "\n")
 
-def countKmerMatch(fas, kmer_list, outfile):
+def countKmerMatch(fas, kmer_list, outfile, is_fastq):
 	match = []
 	total_count = 0
 	with open(kmer_list,'r') as fin:
-		with open(outfile, "w") as output_handle:
-			lines =  fin.read().splitlines() 
-			for record in SeqIO.parse(fas, "fasta"):
-				read = record.seq
-				num = 0
-				for plasmid_sequence in lines:
-					sequence = Seq(plasmid_sequence)
-					num = num + int(read.count(sequence))
-				if num > 0:
-					match.append('1')
-					# write to fasta file
-					SeqIO.write(record, output_handle, "fasta")
-					total_count = total_count + 1
-				else:
-					match.append('0')
+		with open(outfile + '.fasta', "w") as output_fasta_handle:
+			lines =  fin.read().splitlines()
+			if is_fastq:
+				with open(outfile + '.fastq', "w") as output_fastq_handle:
+					for record in SeqIO.parse(fas, "fastq"):
+						read = record.seq
+						num = 0
+						for plasmid_sequence in lines:
+							sequence = Seq(plasmid_sequence)
+							num = num + int(read.count(sequence))
+						if num > 0:
+							match.append('1')
+							# write to fasta file
+							SeqIO.write(record, output_fastq_handle, "fastq") 
+							SeqIO.write(record, output_fasta_handle, "fasta")
+							total_count = total_count + 1
+						else:
+							match.append('0')
+			else:
+				for record in SeqIO.parse(fas, "fasta"):
+					read = record.seq
+					num = 0
+					for plasmid_sequence in lines:
+						sequence = Seq(plasmid_sequence)
+						num = num + int(read.count(sequence))
+					if num > 0:
+						match.append('1')
+						# write to fasta file
+						SeqIO.write(record, output_fasta_handle, "fasta")
+						total_count = total_count + 1
+					else:
+						match.append('0')
 	return match, total_count
 
 def shapeKmerMatch2(fas, kmer_list1, kmer_list2):
@@ -206,35 +228,22 @@ def runRF(X, y, X_val, y_val):
 		joblib.dump(fitted, fid, compress=9)
 	return fitted
 
-def subsetFastaBasedOnPrediction(fasta_file, predictions, probabilities, add_proba=True):
+def subsetFastaBasedOnPrediction(file, predictions):
 	"""seperates plasmid and chromosomal fragments based on prediction"""
-	plasmid_sequences={}
-	chromsom_sequences={}
 	i = 0
-	for seq_record in SeqIO.parse(fasta_file, "fasta"):
-			sequence = str(seq_record.seq).upper()
-			if (predictions[i] == 1):
-					if (add_proba):
-							plasmid_sequences[sequence] = seq_record.description + "-" + str(probabilities[i])
-					else:
-							plasmid_sequences[sequence] = seq_record.description 
-			else:
-					if (add_proba):
-							chromsom_sequences[sequence] = seq_record.description + "-" +  str(probabilities[i])
-					else:
-							chromsom_sequences[sequence] = seq_record.description
-			i += 1
-	# write plasmid fata file
-	output_file = open(fasta_file + ".plasmids", "w+")
-	for sequence in plasmid_sequences:
-		output_file.write(">" + plasmid_sequences[sequence] + "\n" + sequence + "\n")
-	output_file.close()
-	# write chromosome fasta file
-	output_file = open(fasta_file + ".chromosomes", "w+")
-	for sequence in chromsom_sequences:
-		output_file.write(">" + chromsom_sequences[sequence] + "\n" + sequence + "\n")
-	output_file.close()
-	return plasmid_sequences, chromsom_sequences
+	pla_num = 0
+	chr_num = 0
+	with open('test.fastq' + ".plasmids.fastq", "w") as output_fastq_plasmid_handle:
+		with open('test.fastq' + ".chromosomes.fastq", "w") as output_fastq_chromosomes_handle:	
+			for seq_record in SeqIO.parse('test.fastq', "fastq"):
+				if (predictions[i] == 1):
+					SeqIO.write(seq_record, output_fastq_plasmid_handle, "fastq")
+					pla_num += 1
+				else:
+					SeqIO.write(seq_record, output_fastq_chromosomes_handle, "fastq")
+					chr_num += 1
+				i += 1
+	return pla_num, chr_num
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -244,12 +253,14 @@ if __name__ == "__main__":
 						help='path to file where .pkl models is located')
 	parser.add_argument('--tsne', action='store_true', help='output tsne plot')
 	parser.add_argument('--assemble', action='store_true', help='use SPADES to assemble plasmid and chromosome reads independently')
+	parser.add_argument('--is_fastq', action='store_true', help='input is fastq file')
 	parser.add_argument('--version', action='version', version='%(prog)s 1.0')
 	args = parser.parse_args()
+
 	""" predict high-confidence reads """
 	print('find high confidence reads')
-	is_plasmid, plasmid_matches = countKmerMatch(args.file, 'plasmid_unique.txt', 'high_confidence_plasmid_reads.fasta')
-	is_chromosome, chromosome_matches = countKmerMatch(args.file, 'chromosome_unique.txt', 'high_confidence_chromosome_reads.fasta')
+	is_plasmid, plasmid_matches = countKmerMatch(args.file, 'dat/plasmid_unique.txt', 'high_confidence_plasmid_reads', args.is_fastq)
+	is_chromosome, chromosome_matches = countKmerMatch(args.file, 'dat/chromosome_unique.txt', 'high_confidence_chromosome_reads', args.is_fastq)
 
 	print("number of high-confidence plasmid reads found: %d" %(plasmid_matches))
 	print("number of high-confidence chromsome reads found: %d" %(chromosome_matches))
@@ -280,16 +291,27 @@ if __name__ == "__main__":
 
 		""" predict remaining reads """
 		print('extract kmer profile')
-		extractkmers(args.file)
-		X_pred = createKmerMatrix(args.file + '.kmer.csv')
+		if args.is_fastq:
+			fastq2fasta(args.file, args.file + '.fasta')
+			extractkmers(args.file + '.fasta')
+		else:
+			extractkmers(args.file)
+		if args.is_fastq:	
+			X_pred = createKmerMatrix(args.file + '.fasta.kmer.csv')
+		else:
+			X_pred = createKmerMatrix(args.file + '.kmer.csv')
 		print('predict reads')
 		predictions = estimator.predict(X_pred)
 		class_proba = estimator.predict_proba(X_pred)
 		probability = np.amax(class_proba, axis=1) # max probability over two classes
 		# split reads
-		plasmid_sequences, chromosome_sequences = subsetFastaBasedOnPrediction(args.file, predictions, probability, add_proba=True)
-		print("number of plasmid reads found: %d" %(len(plasmid_sequences)))
-		print("number of chromsome reads found: %d" %(len(chromosome_sequences)))
+
+		if args.is_fastq:
+			pla_num, chr_num = subsetFastaBasedOnPrediction(args.file, predictions)
+		else:
+			print("not implemented for fasta output, please use fastq input file")
+		print("number of plasmid reads found: %d" %(pla_num))
+		print("number of chromsome reads found: %d" %(chr_num))
 	else:
 		print("plasmid prediction cannot be executed")
 
@@ -300,7 +322,7 @@ if __name__ == "__main__":
 		print('generate matrix')
 		X_mat = X.as_matrix()
 		print('get plot shape')
-		shapes = shapeKmerMatch2(args.file, 'plasmid_unique.txt', 'chromosome_unique.txt')
+		shapes = shapeKmerMatch2(args.file, 'dat/plasmid_unique.txt', 'dat/chromosome_unique.txt')
 		# subset data
 		if (args.read_num > X_mat.shape[0]):
 			print("subset size is larger than number of reads. Subset size was reduced to number of reads")
