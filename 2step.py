@@ -192,7 +192,7 @@ def runRF(X, y, X_val, y_val):
 		joblib.dump(fitted, fid, compress=9)
 	return fitted
 
-def subsetFastaBasedOnPrediction(fasta_file, predictions, probabilities, confidence=True):
+def subsetFastaBasedOnPrediction(fasta_file, predictions, probabilities, add_proba=True):
 	"""seperates plasmid and chromosomal fragments based on prediction"""
 	plasmid_sequences={}
 	chromsom_sequences={}
@@ -200,27 +200,27 @@ def subsetFastaBasedOnPrediction(fasta_file, predictions, probabilities, confide
 	for seq_record in SeqIO.parse(fasta_file, "fasta"):
 			sequence = str(seq_record.seq).upper()
 			if (predictions[i] == 1):
-					if (confidence):
+					if (add_proba):
 							plasmid_sequences[sequence] = seq_record.description + "-" + str(probabilities[i])
 					else:
 							plasmid_sequences[sequence] = seq_record.description 
 			else:
-					if (confidence):
+					if (add_proba):
 							chromsom_sequences[sequence] = seq_record.description + "-" +  str(probabilities[i])
 					else:
 							chromsom_sequences[sequence] = seq_record.description
 			i += 1
-		# write plasmid fata file
-		output_file = open(fasta_file + ".plasmids", "w+")
-		for sequence in plasmid_sequences:
-			output_file.write(">" + plasmid_sequences[sequence] + "\n" + sequence + "\n")
-		output_file.close()
-		# write chromosome fasta file
-		output_file = open(fasta_file + ".chromosomes", "w+")
-		for sequence in chromsom_sequences:
-			output_file.write(">" + chromsom_sequences[sequence] + "\n" + sequence + "\n")
-		output_file.close()
-		return plasmid_sequences, chromsom_sequences
+	# write plasmid fata file
+	output_file = open(fasta_file + ".plasmids", "w+")
+	for sequence in plasmid_sequences:
+		output_file.write(">" + plasmid_sequences[sequence] + "\n" + sequence + "\n")
+	output_file.close()
+	# write chromosome fasta file
+	output_file = open(fasta_file + ".chromosomes", "w+")
+	for sequence in chromsom_sequences:
+		output_file.write(">" + chromsom_sequences[sequence] + "\n" + sequence + "\n")
+	output_file.close()
+	return plasmid_sequences, chromsom_sequences
 
 if __name__ == "__main__":
 	parser = argparse.ArgumentParser()
@@ -262,15 +262,17 @@ if __name__ == "__main__":
 	""" predict remaining reads """
 	print('extract kmer profile')
 	extractkmers(args.file)
-	X_pred = createKmerMatrix(args.file + 'kmker.csv')
+	X_pred = createKmerMatrix(args.file + '.kmer.csv')
 	print('predict reads')
 	predictions = estimator.predict(X_pred)
-	class_proba = estimator.predict_proba(X_pred)[:,1]
-	plasmid_proba = class_proba[:,1]
+	class_proba = estimator.predict_proba(X_pred)
 	probability = np.amax(class_proba, axis=1) # max probability over two classes
 	# split reads
-	plasmid_sequences, chromsom_sequences = subsetFastaBasedOnPrediction(args.file, predictions, probability, confidence=True)
+	plasmid_sequences, chromosome_sequences = subsetFastaBasedOnPrediction(args.file, predictions, probability, add_proba=True)
  
+	print("number of plasmid reads found: %d" %(len(plasmid_sequences)))
+	print("number of chromsome reads found: %d" %(len(chromosome_sequences)))
+
 	""" print tSNE """
 	if args.tsne:
 		print('extract GC content from reads')
