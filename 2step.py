@@ -35,6 +35,7 @@ def sequence_cleaner(fasta_file, min_length=0, por_n=100):
 
 def countKmerMatch(fas, kmer_list, outfile):
 	match = []
+	total_count = 0
 	with open(kmer_list,'r') as fin:
 		with open(outfile, "w") as output_handle:
 			lines =  fin.read().splitlines() 
@@ -48,9 +49,10 @@ def countKmerMatch(fas, kmer_list, outfile):
 					match.append('1')
 					# write to fasta file
 					SeqIO.write(record, output_handle, "fasta")
+					total_count = total_count + 1
 				else:
 					match.append('0')
-	return match
+	return match, total_count
 
 def shapeKmerMatch2(fas, kmer_list1, kmer_list2):
 	match = []
@@ -74,6 +76,7 @@ def shapeKmerMatch2(fas, kmer_list1, kmer_list2):
 					match.append('D')
 				else:
 					match.append('P')
+		match = array(match)
 		return match
 
 def creatematrix(kmer):
@@ -84,7 +87,7 @@ def creatematrix(kmer):
 
 def extractkmers(data):
 	s = ""
-	cmd = ('src/fasta2kmers2 -i ', data, ' -f ', data, '.kmer -j 5 -k 5 -s 0 -r 1 -R 1 -n 1')
+	cmd = ('src/fasta2kmers2 -i ', data, ' -f ', data, '.kmer -j 4 -k 4 -s 0 -r 1 -R 1 -n 1')
 	os.system(s.join( cmd ))
 	fname =  data +  ".kmer"
 	fname2 = data + ".kmer.csv"
@@ -92,26 +95,29 @@ def extractkmers(data):
 		w = csv.writer(out, delimiter=",")
 		w.writerows(x for x in csv.reader(inp, delimiter="\t"))
 
-def print_tsne(X, perplexity = 10, colors=None,  cmap='hsv', marker=None):
-	X_tsne = TSNE(n_jobs = 4, n_components = 2, perplexity=perplexity, 
-		init='pca', verbose=1).fit_transform(X)
+def tsne_w_marker(X_tsne, marker, title, colors=None,  cmap='hsv'):
 	plt.figure()
 	plt.margins(0)
 	plt.axis('off')
-	if len(marker) > 1:
-		unique_markers = set(marker) 
-		for um in unique_markers:
-			mask = marker == um 
-			plt.scatter(X_tsne[mask, 0],
-				X_tsne[mask, 1],
-				marker=um,
-				cmap=cmap,
-				edgecolor='', # don't use edges 
-				lw=0,  # don't use edges
-				s=1
-				)
-	else:
-		plt.scatter( X_tsne[:, 0], X_tsne[:, 1], 
+	unique_markers = set(marker) 
+	for um in unique_markers:
+		mask = marker == um 
+		plt.scatter(X_tsne[mask, 0],
+			X_tsne[mask, 1],
+			marker=um,
+			cmap=cmap,
+			edgecolor='', # don't use edges 
+			lw=0,  # don't use edges
+			s=1)
+	plt.title('tSNE perplexity:' + str(title))
+	plt.savefig('tsne_class_' + str(title) + '.pdf')
+	return(plt)
+
+def tsne_wo_marker(X_tsne, title, colors=None,  cmap='hsv'):
+	plt.figure()
+	plt.margins(0)
+	plt.axis('off')
+	plt.scatter( X_tsne[:, 0], X_tsne[:, 1], 
 			marker=',',
 			alpha = 1, 
 			c=colors,
@@ -120,9 +126,17 @@ def print_tsne(X, perplexity = 10, colors=None,  cmap='hsv', marker=None):
 			edgecolor='', # don't use edges 
 			lw=0,  # don't use edges
 			s=0.5) # set marker size. single pixel is 0.5 on retina, 1.0 otherwise
-	plt.title('tSNE perplexity:' + str(perplexity))
-#	plt.colorbar()
-	plt.savefig('tsne' + str(perplexity) + '.pdf')
+	plt.title('tSNE perplexity:' + str(title))
+	plt.savefig('tsne_gc_' + str(title) + '.pdf')
+	return(plt)
+
+def print_tsne(X, perplexity = 10, colors=None,  cmap='hsv', marker=None):
+	sc = StandardScaler()
+	X_sc = sc.fit_transform(X)
+	X_tsne = TSNE(n_jobs = 4, n_components = 2, perplexity=perplexity, 
+		init='pca', verbose=1).fit_transform(X_sc)
+	tsne_wo_marker(X_tsne, title='test1', colors=colors, cmap=cmap)
+	tsne_w_marker(X_tsne, marker=marker, title='test1', colors=colors, cmap=cmap)
 	return(X_tsne)
 
 def getGC(seq):
@@ -156,7 +170,7 @@ def creatematrix(kmer_pos, kmer_neg):
 	return X, y
 
 def runRF(X, y, X_val, y_val):
-	clf = RandomForestClassifier(n_estimators = 2000, n_jobs = -1)
+	clf = RandomForestClassifier(n_estimators = 2000, n_jobs = -1, class_weight='balanced')
 	#clf = RandomForestClassifier(n_estimators = 2000,
 #		max_depth=param_dist['clf__max_depth'], 
 #		max_features=param_dist['clf__max_features'],
@@ -228,70 +242,75 @@ if __name__ == "__main__":
 	parser.add_argument('--read_num', action='store', dest='read_num', help='number of reads for subset', default='1000')
 	parser.add_argument('-m', '--model_param_file', action='store', dest='model_param',
 						help='path to file where .pkl models is located')
-	parser.add_argument('--tsne', action='store_true')
+	parser.add_argument('--tsne', action='store_true', help='output tsne plot')
+	parser.add_argument('--assemble', action='store_true', help='use SPADES to assemble plasmid and chromosome reads independently')
 	parser.add_argument('--version', action='version', version='%(prog)s 1.0')
 	args = parser.parse_args()
 	""" predict high-confidence reads """
 	print('find high confidence reads')
-	is_plasmid = countKmerMatch(args.file, 'plasmid_unique.txt', 'high_confidence_plasmid_reads.fasta')
-	is_chromosome = countKmerMatch(args.file, 'chromosome_unique.txt', 'high_confidence_chromosome_reads.fasta')
+	is_plasmid, plasmid_matches = countKmerMatch(args.file, 'plasmid_unique.txt', 'high_confidence_plasmid_reads.fasta')
+	is_chromosome, chromosome_matches = countKmerMatch(args.file, 'chromosome_unique.txt', 'high_confidence_chromosome_reads.fasta')
 
-	print('extract kmer information of high-confidence reads')
-	extractkmers('high_confidence_plasmid_reads.fasta')
-	extractkmers('high_confidence_chromosome_reads.fasta')
+	print("number of high-confidence plasmid reads found: %d" %(plasmid_matches))
+	print("number of high-confidence chromsome reads found: %d" %(chromosome_matches))
 
-	print('build learning matrix')
-	X, y = creatematrix('high_confidence_plasmid_reads.fasta.kmer.csv', 'high_confidence_chromosome_reads.fasta.kmer.csv')
-	X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y)
+	if plasmid_matches > 0 and chromosome_matches > 0:
+		print('extract kmer information of high-confidence reads')
+		extractkmers('high_confidence_plasmid_reads.fasta')
+		extractkmers('high_confidence_chromosome_reads.fasta')
 
-	""" build RF model """
-	# create output folder
-	if not os.path.exists('model'):
-		os.makedirs('model')
+		print('build learning matrix')
+		X, y = creatematrix('high_confidence_plasmid_reads.fasta.kmer.csv', 'high_confidence_chromosome_reads.fasta.kmer.csv')
+		X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, stratify=y)
 
-	# get read length for classificator
-#	read_length = getReadlength(args.file)
+		""" build RF model """
+		# create output folder
+		if not os.path.exists('model'):
+			os.makedirs('model')
 
-	# load RF parameters
-	print('setting up RF model')
-	#param_dist = joblib.load(args.model_param)
-	# build RF
-	print('build RF model')
-	estimator = runRF(X_train, y_train, X_test, y_test)
+		# get read length for classificator
+		#	read_length = getReadlength(args.file)
 
-	""" predict remaining reads """
-	print('extract kmer profile')
-	extractkmers(args.file)
-	X_pred = createKmerMatrix(args.file + '.kmer.csv')
-	print('predict reads')
-	predictions = estimator.predict(X_pred)
-	class_proba = estimator.predict_proba(X_pred)
-	probability = np.amax(class_proba, axis=1) # max probability over two classes
-	# split reads
-	plasmid_sequences, chromosome_sequences = subsetFastaBasedOnPrediction(args.file, predictions, probability, add_proba=True)
- 
-	print("number of plasmid reads found: %d" %(len(plasmid_sequences)))
-	print("number of chromsome reads found: %d" %(len(chromosome_sequences)))
+		# load RF parameters
+		print('setting up RF model')
+		#param_dist = joblib.load(args.model_param)
+		# build RF
+		print('build RF model')
+		estimator = runRF(X_train, y_train, X_test, y_test)
 
-	""" print tSNE """
-	if args.tsne:
-		print('extract GC content from reads')
-		gc = extractGC(args.file)
-		print('extract kmer content of input reads')
-		# extract kmer profile of all input reads
-		# get counts to kmer table
+		""" predict remaining reads """
 		print('extract kmer profile')
 		extractkmers(args.file)
+		X_pred = createKmerMatrix(args.file + '.kmer.csv')
+		print('predict reads')
+		predictions = estimator.predict(X_pred)
+		class_proba = estimator.predict_proba(X_pred)
+		probability = np.amax(class_proba, axis=1) # max probability over two classes
+		# split reads
+		plasmid_sequences, chromosome_sequences = subsetFastaBasedOnPrediction(args.file, predictions, probability, add_proba=True)
+		print("number of plasmid reads found: %d" %(len(plasmid_sequences)))
+		print("number of chromsome reads found: %d" %(len(chromosome_sequences)))
+	else:
+		print("plasmid prediction cannot be executed")
+
+	""" print tSNE on subset of data """
+	if args.tsne:
+		print('generate plot colors')
+		gc = extractGC(args.file)
 		print('generate matrix')
-		X = creatematrix(args.file + ".kmer.csv")
-		X = X.as_matrix()
-		# resaling
-		print('scale data')
-		sc = StandardScaler()
-		X_sc = sc.fit_transform(X)
+		X_mat = X.as_matrix()
+		print('get plot shape')
 		shapes = shapeKmerMatch2(args.file, 'plasmid_unique.txt', 'chromosome_unique.txt')
+		# subset data
+		if (args.read_num > X_mat.shape[0]):
+			print("subset size is larger than number of reads. Subset size was reduced to number of reads")
+			args.read_num = X_mat.shape[0]
+		idx = np.random.choice(X_mat.shape[0], args.read_num, replace=False) # roll the dice
+		X_subset = X_mat[idx, :]
+		gc_subset = gc[idx]
+		shape_subset = shapes[idx]
 		print('crate tSNE plots')
-		print_tsne(X_sc, perplexity = 25, colors = gc, cmap='viridis', marker=np.array(shapes))
-		print_tsne(X_sc, perplexity = 5, colors = gc, cmap='viridis')
-		print_tsne(X_sc, perplexity = 25, colors = gc, cmap='viridis')
-		print_tsne(X_sc, perplexity = 50, colors = gc, cmap='viridis')
+		print_tsne(X_subset, perplexity = 10, colors = gc_subset, cmap='viridis', marker=shape_subset)
+#		print_tsne(X_sc, perplexity = 5, colors = gc, cmap='viridis')
+#		print_tsne(X_sc, perplexity = 25, colors = gc, cmap='viridis')
+#		print_tsne(X_sc, perplexity = 50, colors = gc, cmap='viridis')
