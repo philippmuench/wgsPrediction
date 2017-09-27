@@ -20,5 +20,9 @@ pip install matplotlib pandas numpy Biopython sklearn argparse
 ## usuage
 
 ```
-python 2step.py --file test.fasta 
+python 2step.py --file test.fastq --is_fastq 
 ```
+
+## visulaization
+
+tSNE will be created for (1) reads based on kmer counts (2) with highlighed high-confidence reads used for classification (3) colored by classification by RF
