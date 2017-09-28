@@ -1,14 +1,16 @@
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import os, csv
+import os, csv, sys, re
 import argparse
 from sklearn.preprocessing import StandardScaler
 import pandas as pd
 import numpy as np
 from numpy import array
+import progressbar
 from Bio.Seq import Seq
 from Bio import SeqIO
+from StringIO import StringIO
 from MulticoreTSNE import MulticoreTSNE as TSNE
 from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
@@ -38,21 +40,52 @@ def sequence_cleaner(fasta_file, min_length=0, por_n=100):
 		for sequence in sequences:
 			output_file.write(">" + sequences[sequence] + "\n" + sequence + "\n")
 
+def countKmerMatchFast(fas, kmer_list, outfile):
+	total_count = 0
+	with open(kmer_list,'r') as fin:
+		lines =  fin.read().splitlines()
+		for marker_sequence in lines:
+			print("check " + marker_sequence)
+			output_file = open(outfile, 'ab')
+			input_file = open(fas, "r")
+			matches = []
+			current_line = ""
+			for line in input_file:
+				previous_line = current_line
+				current_line = line
+				if re.search(marker_sequence, line):
+					total_count += 1
+					#print previous_line,
+					output_file.write(">" + previous_line) # write fasta header
+					output_file.write(current_line) # write sequence
+					matches.append(previous_line)
+	output_file.close()
+	return total_count
+
 def countKmerMatch(fas, kmer_list, outfile, is_fastq):
 	match = []
 	total_count = 0
+	num_found_markers = 0
+	handle = StringIO("")
+	num_elem = SeqIO.convert(fas, "fastq", handle, "fasta") # there must be an easyer way to get the number of sequences?
+	bar = progressbar.ProgressBar(redirect_stdout=True, max_value=num_elem)
 	with open(kmer_list,'r') as fin:
 		with open(outfile + '.fasta', "w") as output_fasta_handle:
 			lines =  fin.read().splitlines()
 			if is_fastq:
 				with open(outfile + '.fastq', "w") as output_fastq_handle:
+					i = 0
 					for record in SeqIO.parse(fas, "fastq"):
 						read = record.seq
+						i = i + 1
 						num = 0
+						bar.update(i)
 						for plasmid_sequence in lines:
 							sequence = Seq(plasmid_sequence)
 							num = num + int(read.count(sequence))
 						if num > 0:
+							print("marker found at read number %d" %(i))
+							num_found_markers = num_found_markers + 1
 							match.append('1')
 							# write to fasta file
 							SeqIO.write(record, output_fastq_handle, "fastq") 
@@ -258,9 +291,12 @@ if __name__ == "__main__":
 	args = parser.parse_args()
 
 	""" predict high-confidence reads """
-	print('find high confidence reads')
-	is_plasmid, plasmid_matches = countKmerMatch(args.file, 'database/plasmid_unique.txt', 'high_confidence_plasmid_reads', args.is_fastq)
-	is_chromosome, chromosome_matches = countKmerMatch(args.file, 'database/chromosome_unique.txt', 'high_confidence_chromosome_reads', args.is_fastq)
+	print('searching reads for plasmid markers')
+	#is_plasmid, plasmid_matches = countKmerMatch(args.file, 'database/set_a_specific_20_100.txt', 'high_confidence_plasmid_reads', args.is_fastq)
+	plasmid_matches = countKmerMatchFast(args.file, 'database/set_a_specific_20_100.txt', 'high_confidence_plasmid_reads')
+	chromosome_matches = countKmerMatchFast(args.file, 'database/set_b_specific_20_100.txt', 'high_confidence_chromosome_reads')
+	print('searching reads for non-plasmid markers')
+	#is_chromosome, chromosome_matches = countKmerMatch(args.file, 'database/set_b_specific_20_100.txt', 'high_confidence_chromosome_reads', args.is_fastq)
 
 	print("number of high-confidence plasmid reads found: %d" %(plasmid_matches))
 	print("number of high-confidence chromsome reads found: %d" %(chromosome_matches))
