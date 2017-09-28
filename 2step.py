@@ -41,11 +41,20 @@ def sequence_cleaner(fasta_file, min_length=0, por_n=100):
 			output_file.write(">" + sequences[sequence] + "\n" + sequence + "\n")
 
 def countKmerMatchFast(fas, kmer_list, outfile):
+	try:
+		os.remove(outfile)
+	except OSError:
+		pass
+	num_kmers = sum(1 for line in open(kmer_list))
 	total_count = 0
+	i = 1
+	bar = progressbar.ProgressBar(redirect_stdout=True, max_value=num_kmers)
 	with open(kmer_list,'r') as fin:
 		lines =  fin.read().splitlines()
 		for marker_sequence in lines:
-			print("check " + marker_sequence)
+			bar.update(i)
+			i += 1
+			#print("check " + marker_sequence)
 			output_file = open(outfile, 'ab')
 			input_file = open(fas, "r")
 			matches = []
@@ -293,8 +302,8 @@ if __name__ == "__main__":
 	""" predict high-confidence reads """
 	print('searching reads for plasmid markers')
 	#is_plasmid, plasmid_matches = countKmerMatch(args.file, 'database/set_a_specific_20_100.txt', 'high_confidence_plasmid_reads', args.is_fastq)
-	plasmid_matches = countKmerMatchFast(args.file, 'database/set_a_specific_20_100.txt', 'high_confidence_plasmid_reads')
-	chromosome_matches = countKmerMatchFast(args.file, 'database/set_b_specific_20_100.txt', 'high_confidence_chromosome_reads')
+	plasmid_matches = countKmerMatchFast(args.file, 'database/set_a_specific_20_100.txt', 'high_confidence_plasmid_reads.fasta')
+	chromosome_matches = countKmerMatchFast(args.file, 'database/set_b_specific_20_100.txt', 'high_confidence_chromosome_reads.fasta')
 	print('searching reads for non-plasmid markers')
 	#is_chromosome, chromosome_matches = countKmerMatch(args.file, 'database/set_b_specific_20_100.txt', 'high_confidence_chromosome_reads', args.is_fastq)
 
